@@ -96,6 +96,53 @@ const tools = [
   pm2ActionTool('pm2_stop',    'Stop a running pm2 process by name or id.'),
   pm2ActionTool('pm2_restart', 'Restart a pm2 process by name or id.'),
   pm2ActionTool('pm2_delete',  'Delete a pm2 process by name or id (removes it from pm2 list).'),
+  {
+    name: 'systemctl_list',
+    description: 'List systemd services. Optionally filter by state: active, failed, or inactive.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        state: { type: 'string', enum: ['active', 'failed', 'inactive'], description: 'Filter by service state. Omit to list all.' }
+      }
+    }
+  },
+  {
+    name: 'systemctl_status',
+    description: 'Get the status of a specific systemd service.',
+    inputSchema: {
+      type: 'object',
+      properties: { service: { type: 'string', description: 'Service name, e.g. "nginx" or "nginx.service".' } },
+      required: ['service']
+    }
+  },
+  {
+    name: 'systemctl_action',
+    description: 'Start, stop, restart, enable, or disable a systemd service.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        service: { type: 'string', description: 'Service name, e.g. "nginx".' },
+        action: { type: 'string', enum: ['start', 'stop', 'restart', 'enable', 'disable'], description: 'Action to perform.' }
+      },
+      required: ['service', 'action']
+    }
+  },
+  {
+    name: 'get_logs',
+    description: 'Get recent journal logs via journalctl. Optionally filter by service.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        service: { type: 'string', description: 'Service name to filter logs (e.g. "nginx"). Omit for system-wide logs.' },
+        lines: { type: 'number', description: 'Number of recent log lines to return (default: 50).' }
+      }
+    }
+  },
+  {
+    name: 'get_open_ports',
+    description: 'List all listening TCP/UDP ports and the processes using them (via ss).',
+    inputSchema: { type: 'object', properties: {} }
+  },
 ];
 
 const toolHandlers = {
@@ -187,6 +234,71 @@ const toolHandlers = {
   pm2_stop:    pm2ActionHandler('stop'),
   pm2_restart: pm2ActionHandler('restart'),
   pm2_delete:  pm2ActionHandler('delete'),
+  systemctl_list: async ({ state } = {}) => {
+    const stateFlag = state ? `--state=${state}` : '';
+    const output = await execShell(`systemctl list-units --type=service --no-pager --no-legend ${stateFlag}`.trim());
+    if (!output) return { count: 0, services: [] };
+    const services = output.split('\n').filter(Boolean).map(line => {
+      const [unit, load, active, sub, ...descParts] = line.trim().split(/\s+/);
+      return { unit, load, active, sub, description: descParts.join(' ') };
+    });
+    return { count: services.length, services };
+  },
+  systemctl_status: async ({ service }) => {
+    if (!service || typeof service !== 'string' || service.trim() === '')
+      return { error: 'invalid_service', message: 'service must be a non-empty string.' };
+    if (!/^[\w.\-@:]+$/.test(service))
+      return { error: 'invalid_service', message: 'service contains invalid characters.' };
+    try {
+      const output = await execShell(`systemctl status ${service} --no-pager`);
+      const activeMatch = output.match(/Active:\s+(\S+)/);
+      return { service, active: activeMatch ? activeMatch[1] : 'unknown', output };
+    } catch (err) {
+      // systemctl status exits non-zero for inactive/failed services — still return output
+      const output = err.stderr || err.message || '';
+      const activeMatch = output.match(/Active:\s+(\S+)/);
+      return { service, active: activeMatch ? activeMatch[1] : 'unknown', output };
+    }
+  },
+  systemctl_action: async ({ service, action }) => {
+    if (!service || typeof service !== 'string' || service.trim() === '')
+      return { error: 'invalid_service', message: 'service must be a non-empty string.' };
+    if (!/^[\w.\-@:]+$/.test(service))
+      return { error: 'invalid_service', message: 'service contains invalid characters.' };
+    const validActions = ['start', 'stop', 'restart', 'enable', 'disable'];
+    if (!validActions.includes(action))
+      return { error: 'invalid_action', message: `action must be one of: ${validActions.join(', ')}.` };
+    try {
+      const output = await execShell(`systemctl ${action} ${service}`);
+      return { success: true, service, action, output };
+    } catch (err) {
+      return { error: 'systemctl_error', message: err.stderr || err.message };
+    }
+  },
+  get_logs: async ({ service, lines = 50 } = {}) => {
+    const n = Number.isInteger(lines) && lines > 0 ? lines : 50;
+    if (service) {
+      if (typeof service !== 'string' || !/^[\w.\-@:]+$/.test(service))
+        return { error: 'invalid_service', message: 'service contains invalid characters.' };
+    }
+    const serviceFlag = service ? `-u ${service}` : '';
+    const output = await execShell(`journalctl -n ${n} --no-pager ${serviceFlag}`.trim());
+    return { lines: n, service: service || null, output };
+  },
+  get_open_ports: async () => {
+    const output = await execShell('ss -tlnup');
+    const lines = output.split('\n').slice(1).filter(Boolean);
+    const ports = lines.map(line => {
+      const parts = line.trim().split(/\s+/);
+      const [netid, state, , , localAddr, , ...rest] = parts;
+      const lastColon = (localAddr || '').lastIndexOf(':');
+      const address = lastColon >= 0 ? localAddr.slice(0, lastColon) : localAddr;
+      const port = lastColon >= 0 ? localAddr.slice(lastColon + 1) : '';
+      const process = rest.join(' ') || null;
+      return { netid, state, address, port, process };
+    });
+    return { count: ports.length, ports };
+  },
 };
 
 module.exports = { tools, toolHandlers };
