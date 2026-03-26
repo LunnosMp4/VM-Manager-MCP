@@ -14,33 +14,6 @@ function isPm2Missing(err) {
   return err.code === 'ENOENT' || /not found|No such file/i.test(err.message + (err.stderr || ''));
 }
 
-function pm2ActionTool(name, description) {
-  return {
-    name,
-    description,
-    inputSchema: {
-      type: 'object',
-      properties: { target: { type: 'string', description: 'pm2 app name or numeric id. No wildcards.' } },
-      required: ['target']
-    }
-  };
-}
-
-function pm2ActionHandler(subcommand) {
-  return async ({ target }) => {
-    if (!target || typeof target !== 'string' || target.trim() === '')
-      return { error: 'invalid_target', message: 'target must be a non-empty string.' };
-    if (!/^[\w.\-]+$/.test(target))
-      return { error: 'invalid_target', message: 'target contains invalid characters.' };
-    try {
-      const stdout = await execShell(`pm2 ${subcommand} ${target}`);
-      return { success: true, subcommand, target, output: stdout };
-    } catch (err) {
-      if (isPm2Missing(err)) return { error: 'pm2_not_installed', message: 'pm2 is not installed or not in PATH.' };
-      return { error: 'pm2_error', message: err.stderr || err.message };
-    }
-  };
-}
 
 const tools = [
   {
@@ -92,10 +65,18 @@ const tools = [
     description: 'List all pm2-managed processes with their status, PID, CPU, and memory.',
     inputSchema: { type: 'object', properties: {} },
   },
-  pm2ActionTool('pm2_start',   'Start a stopped pm2 process by name or id.'),
-  pm2ActionTool('pm2_stop',    'Stop a running pm2 process by name or id.'),
-  pm2ActionTool('pm2_restart', 'Restart a pm2 process by name or id.'),
-  pm2ActionTool('pm2_delete',  'Delete a pm2 process by name or id (removes it from pm2 list).'),
+  {
+    name: 'pm2_action',
+    description: 'Start, stop, restart, or delete a pm2 process by name or id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        target: { type: 'string', description: 'pm2 app name or numeric id. No wildcards.' },
+        action: { type: 'string', enum: ['start', 'stop', 'restart', 'delete'], description: 'Action to perform.' }
+      },
+      required: ['target', 'action']
+    }
+  },
   {
     name: 'systemctl_list',
     description: 'List systemd services. Optionally filter by state: active, failed, or inactive.',
@@ -230,10 +211,22 @@ const toolHandlers = {
       }))
     };
   },
-  pm2_start:   pm2ActionHandler('start'),
-  pm2_stop:    pm2ActionHandler('stop'),
-  pm2_restart: pm2ActionHandler('restart'),
-  pm2_delete:  pm2ActionHandler('delete'),
+  pm2_action: async ({ target, action }) => {
+    if (!target || typeof target !== 'string' || target.trim() === '')
+      return { error: 'invalid_target', message: 'target must be a non-empty string.' };
+    if (!/^[\w.\-]+$/.test(target))
+      return { error: 'invalid_target', message: 'target contains invalid characters.' };
+    const validActions = ['start', 'stop', 'restart', 'delete'];
+    if (!validActions.includes(action))
+      return { error: 'invalid_action', message: `action must be one of: ${validActions.join(', ')}.` };
+    try {
+      const output = await execShell(`pm2 ${action} ${target}`);
+      return { success: true, action, target, output };
+    } catch (err) {
+      if (isPm2Missing(err)) return { error: 'pm2_not_installed', message: 'pm2 is not installed or not in PATH.' };
+      return { error: 'pm2_error', message: err.stderr || err.message };
+    }
+  },
   systemctl_list: async ({ state } = {}) => {
     const stateFlag = state ? `--state=${state}` : '';
     const output = await execShell(`systemctl list-units --type=service --no-pager --no-legend ${stateFlag}`.trim());
