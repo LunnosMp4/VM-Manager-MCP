@@ -31,12 +31,12 @@ Configure the server using environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `PORT` | 3001 | Server port (SSE mode) |
+| `PORT` | 3001 | Server port (Streamable HTTP mode) |
 | `BASE_PATH` | (empty) | URL path prefix for endpoints |
 | `MCP_TOOL_TIMEOUT_MS` | 300000 | Tool execution timeout in milliseconds |
 | `MCP_MAX_RESPONSE_BYTES` | 0 | Max response size (0 = unlimited) |
 | `MCP_API_KEY` | (empty) | API key for authentication (optional) |
-| `MODE` | sse | Startup mode: `sse` or `stdio` |
+| `MODE` | streamable-http | Startup mode: `streamable-http` or `stdio` |
 
 ### Example `.env` file:
 ```
@@ -48,14 +48,16 @@ MCP_TOOL_TIMEOUT_MS=300000
 
 ## Usage
 
-### Start in SSE Mode (HTTP Server)
+### Start in Streamable HTTP Mode
 ```bash
 node index.js
 # or with custom settings
-node index.js --mode=sse
+node index.js --mode=streamable-http
 ```
 
-Server runs on `http://0.0.0.0:3001` (or custom PORT)
+Server runs on `http://0.0.0.0:3001` (or custom PORT) and exposes the MCP endpoint at `http://0.0.0.0:3001/mcp` (or `${BASE_PATH}/mcp` if configured).
+
+The `/mcp` endpoint accepts `GET`, `POST`, and `DELETE` requests through the Streamable HTTP transport.
 
 ### Start in Stdio Mode
 ```bash
