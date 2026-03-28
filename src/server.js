@@ -1,5 +1,5 @@
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
-const { SSEServerTransport } = require('@modelcontextprotocol/sdk/server/sse.js');
+const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
 const express = require('express');
@@ -86,34 +86,31 @@ function createServer(config) {
   return srv;
 }
 
-async function startSSE(config) {
+async function startStreamableHTTP(config) {
   const { port, basePath, apiKey } = config;
   const app = express();
-  const sessions = new Map();
   const requireApiKey = createRequireApiKey(apiKey);
+  const endpoint = `${basePath}/mcp`;
 
-  app.get(`${basePath}/sse`, requireApiKey, async (req, res) => {
-    const serverInstance = createServer(config);
-    const transport = new SSEServerTransport(`${basePath}/messages`, res);
-    await serverInstance.connect(transport);
-    const sessionId = transport.sessionId;
+  const serverInstance = createServer(config);
+  const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
+  await serverInstance.connect(transport);
 
-    if (sessionId) {
-      sessions.set(sessionId, transport);
-      req.on('close', () => sessions.delete(sessionId));
-    }
+  app.get(endpoint, requireApiKey, async (req, res) => {
+    await transport.handleRequest(req, res);
   });
 
-  app.post(`${basePath}/messages`, requireApiKey, express.json(), async (req, res) => {
-    const sessionId = req.query.sessionId;
-    const transport = sessions.get(sessionId);
-    if (!transport) return res.status(404).send('Session not found');
-    await transport.handlePostMessage(req, res, req.body);
+  app.post(endpoint, requireApiKey, express.json(), async (req, res) => {
+    await transport.handleRequest(req, res, req.body);
+  });
+
+  app.delete(endpoint, requireApiKey, async (req, res) => {
+    await transport.handleRequest(req, res);
   });
 
   app.listen(port, '0.0.0.0', () => {
     console.log(`System Stats MCP Server running on http://0.0.0.0:${port}${basePath}`);
-    console.log(`MCP endpoint: http://0.0.0.0:${port}${basePath}/sse`);
+    console.log(`MCP endpoint: http://0.0.0.0:${port}${endpoint}`);
     if (apiKey) console.log('MCP API key auth enabled.');
   });
 }
@@ -125,4 +122,4 @@ async function startStdio(config) {
   console.error('System Stats MCP Server running in stdio mode (MCP).');
 }
 
-module.exports = { startSSE, startStdio };
+module.exports = { startStreamableHTTP, startStdio };

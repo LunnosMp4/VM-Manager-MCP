@@ -1,5 +1,5 @@
 require('dotenv').config({ quiet: true });
-const { startSSE, startStdio } = require('./src/server.js');
+const { startStreamableHTTP, startStdio } = require('./src/server.js');
 
 function envInt(value, fallback) {
   const parsed = parseInt(value, 10);
@@ -14,7 +14,7 @@ const config = {
   apiKey:         process.env.MCP_API_KEY || '',
 };
 
-const MODE = (process.argv.find((arg) => arg.startsWith('--mode=')) || '').split('=')[1] || 'sse';
+const MODE = (process.argv.find((arg) => arg.startsWith('--mode=')) || '').split('=')[1] || 'streamable-http';
 
 process.on('SIGINT', () => process.exit(0));
 process.on('SIGTERM', () => process.exit(0));
@@ -24,9 +24,12 @@ if (MODE === 'stdio') {
     console.error('Failed to start stdio mode:', err);
     process.exit(1);
   });
-} else {
-  startSSE(config).catch((err) => {
-    console.error('Failed to start SSE mode:', err);
+} else if (MODE === 'streamable-http') {
+  startStreamableHTTP(config).catch((err) => {
+    console.error('Failed to start Streamable HTTP mode:', err);
     process.exit(1);
   });
+} else {
+  console.error(`Unknown mode: ${MODE}. Supported modes are "streamable-http" and "stdio".`);
+  process.exit(1);
 }
