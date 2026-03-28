@@ -10,6 +10,7 @@
 - **Disk Usage** - List all mounted filesystems with usage information
 - **Network Info** - Get network interface addresses (IPv4, IPv6, MAC)
 - **Process List** - List all running processes with PID, user, CPU, and memory usage
+- **Open Ports** - List all listening TCP/UDP ports and the processes using them
 
 ### Process Management
 - **Kill Process** - Terminate a process by PID using SIGKILL
@@ -18,6 +19,14 @@
   - Start/stop PM2 processes
   - Restart PM2 processes
   - Delete PM2 processes
+
+### Systemd Service Management
+- **systemctl_list** - List systemd services, optionally filtered by state (`active`, `failed`, `inactive`)
+- **systemctl_status** - Get the status of a specific systemd service
+- **systemctl_action** - Start, stop, restart, enable, or disable a systemd service
+
+### Log Viewing
+- **get_logs** - Retrieve recent journal logs via `journalctl`, optionally filtered by service name and number of lines
 
 ## Installation
 
