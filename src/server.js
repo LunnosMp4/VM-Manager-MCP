@@ -1,4 +1,4 @@
-const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
+const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js');
 const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
 const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const { CallToolRequestSchema, ListToolsRequestSchema } = require('@modelcontextprotocol/sdk/types.js');
@@ -66,21 +66,44 @@ function createRequireApiKey(apiKey) {
 function createServer(config) {
   const { toolTimeoutMs, maxResponseBytes } = config;
 
-  const srv = new Server(
+  const srv = new McpServer(
     { name: 'system-stats', version: '1.0.0' },
     { capabilities: { tools: {} } }
   );
 
-  srv.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
+  tools.forEach((tool) => {
+    const handler = toolHandlers[tool.name];
+    
+    if (handler) {
+      srv.registerTool( 
+        tool.name,
+        {
+          description: tool.description,
+          inputSchema: tool.inputSchema?.properties || {} 
+        },
+        async (args) => {
+          try {
+            const result = await withTimeout(
+              handler(args), 
+              toolTimeoutMs, 
+              `Tool ${tool.name}`
+            );
 
-  srv.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const toolName = request.params.name;
-    const handler = toolHandlers[toolName];
-    if (!handler) throw new Error(`Tool not found: ${toolName}`);
-
-    const args = request.params.arguments || {};
-    const result = await withTimeout(handler(args), toolTimeoutMs, `Tool ${toolName}`);
-    return toToolResponse(result, maxResponseBytes);
+            return {
+              content: [{ 
+                type: 'text', 
+                text: JSON.stringify(result, null, 2) 
+              }]
+            };
+          } catch (error) {
+            return {
+              content: [{ type: 'text', text: `Error: ${error.message}` }],
+              isError: true
+            };
+          }
+        }
+      );
+    }
   });
 
   return srv;
